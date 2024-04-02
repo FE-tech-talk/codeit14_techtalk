@@ -1,7 +1,15 @@
 # 코드잇 14팀 테크톡
 
+코드잇 스프린트 14팀 **코어 자바스크립트** 테크톡 레포지토리입니다.
+
+<p align="center">
+    <img width=300 src="https://github.com/CitrusSoda/codeit14_techtalk/assets/98106371/10224acb-6cf1-419d-9974-c56e101be582" />
+</p>
+
+
 ![JS](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=JavaScript&logoColor=white)
 
+## 팀원 구성
 <table align="center">
     <tbody>
         <tr>

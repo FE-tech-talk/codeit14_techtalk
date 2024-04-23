@@ -11,7 +11,7 @@
 
 함수 인자 5개 미리 적용, 추후 나머지 인자 전달
 
-(+ bind 의 첫 번째 인자로 this 가 들어가야 되는데 바인딩 할 객체가 없어 null 로)
+(+ `bind` 의 첫 번째 인자로 `this` 가 들어가야 되는데 바인딩 할 객체가 없어 `null` 로)
 
 ```js
 var add = function () {
@@ -29,6 +29,14 @@ console.log(addPartial(7, 6, 8, 9, 10)); // 55
 <br>
 
 ## 부분 적용 함수 구현 (1)
+
+**partial**: 호출 시 익명 함수를 반환
+
+**partialArgs**: 함수를 제외한 처음 전달된 인자를 배열로
+
+**restArgs**: 익명 함수가 호출될 때 전달된 인자를 배열로
+
+
 
 ```js
 // 직접 구현한 부분 적용 함수
@@ -68,7 +76,10 @@ console.log(addPartial(6, 7, 8, 9, 10)); // 55
 
 ## 부분 적용 함수 구현 (2)
 
+비어 있는 부분에 하나씩 넣기
+
 ```js
+// _ 를 공백문자로
 var _ = 'EMPTY_SPACE';
 
 var partial2 = function () {

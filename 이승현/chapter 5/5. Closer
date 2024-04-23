@@ -1,0 +1,720 @@
+
+## <mark style="background: #FF5582A6;">개념</mark>
+
+외부 함수에서 사용한 변수를 내부 함수가 사용했을 때, 외부 함수가 종료되어도 여전히 그 내부 함수에서 해당 변수를 사용하고 있는 현상 (closed되어도 사용되고 있는 현상)
+
+## <mark style="background: #FF5582A6;">Closer 예시</mark>
+
+```javascript
+var outer = function () {
+  var a = 1;
+  var inner = function () {
+    console.log(++a);
+  }
+  inner();
+};
+outer();
+```
+
+위의 코드는 다음의 실행 컨텍스트를 이용한다.
+
+![[images_soheey_post_5279dcd3-1328-4215-88dd-25e4942f1d99_1번.jpg]]
+
+
+일반적인 함수의 동작처럼 내부의 함수가 종료되고 그 다음에 외부의 함수가 종료되는 것을 볼 수 있다.
+
+이때 외부 함수가 종료된 후에도 내부 함수를 호출할 수 있게 만들어 보자.
+
+```javascript
+var outer = function () {
+  var a = 1;
+  var inner = function () {
+    return ++a;
+  }
+  return inner;
+};
+var outer2 = outer();
+console.log(outer2());
+console.log(outer2());
+console.log(outer2());
+```
+
+outer2에 저장된 함수 outer는 inner를 반환하게 되고 inner는 outer의 environmentRecord안에 a를 찍을 수 있는 outerEnvironmentReference를 갖고 있어서 내부적으로 outer의 environmentRecord에 접근해서 a를 더하고 그걸 리턴한다.
+
+여기서 outer는 이미 실행 컨텍스트가 끝났지만 inner 함수가 outer 함수의 environmentRecord를 바꾸는 모습을 볼 수 있다.
+
+그 이유는 garbage collector 동작 방식 때문이다.
+
+## <mark style="background: #FFB86CA6;">garbage collector</mark>
+
+어떤 값을 참조하는 변수가 하나라도 있다면 그 값은 수집 대상에 포함시키지 않는다.
+
+![[Pasted image 20240401081421.png]]
+
+(spec에서는 lexical environment 전부를 GC하지 않는걸로 되어 있지만 nodejs환경에서는 environmentRecord만 남기는 걸로 최적화 되어 있다.)
+
+이처럼 lexical environment(위의 environmentRecord)가 실행 컨텍스트 종료 이후에도 존재하는 건(GC가 처리하지 않고) 내부 함수 자체가 외부로 전달된 경우가 유일하다.
+
+즉 Closer는 함수가 종료된 후에도 그 함수의 내부 함수에서 여전히 바깥 함수의 변수를 사용하여 그 변수가 사라지지 않는 현상을 뜻한다. (closed된 funciton의 변수를 여전히 사용)
+
+## <mark style="background: #FF5582A6;">return을 제외한 내부 함수가 외부로 전달되는 방법</mark>
+
+## <mark style="background: #FFB86CA6;">setInterval / setTimeout</mark>
+
+```javascript
+// 1. setInterval / setTimeout
+(function(){
+  var a= 0;
+  var intervalId = null;
+  var inner = function(){
+    if (++a>=10){
+      clearInterval(intervalId);
+    }
+    console.log(a);
+  };
+  intervalId=setInterval(inner,1000);
+  // window 라는 외부 객체의 메서드(setInterval)의 콜백함수가
+  // 바깥 함수의 변수 a를 외부로 전달한다.
+})();
+```
+
+## <mark style="background: #FFB86CA6;">eventListener</mark>
+
+```javascript
+// 2. eventListener
+(function(){
+  var count = 0;
+  var button = document.createElement("button");
+  button.innerText = "click";
+  button.addEventListener("click", function () {
+    console.log(++count, "times clicked");
+  });
+  document.body.appendChild(button);
+  // DOM이라는 외부 객체의 메서드 (addEventListener)의 handler
+  // 함수가 바깥 함수의 변수를 외부로 전달한다.
+})();
+```
+
+## <mark style="background: #FF5582A6;">Closer와 메모리 관리</mark>
+
+## <mark style="background: #FFB86CA6;">메모리 소모 관리</mark>
+
+Closer의 필요성이 사라진 시점에 GC가 해당 Closer를 처리할 수 있도록 하면 된다.
+
+이는 간단하다, Closer가 사용됐었던 식별자를 기본형 데이터(보통 `null`)로 재할당하면 된다.
+
+```javascript
+// 1. return
+var outer = function () {
+  var a = 1;
+  var inner = function () {
+    return ++a;
+  };
+  return inner;
+};
+var outer2 = outer();
+console.log(outer2());
+console.log(outer2());
+outer = null;
+
+// 2. setInterval / setTimeout
+(function () {
+  var a = 0;
+  var intervalId = null;
+  var inner = function () {
+    if (++a >= 10) {
+      clearInterval(intervalId);
+      inner = null;
+    }
+    console.log(a);
+  };
+  intervalId = setInterval(inner, 1000);
+})();
+
+// 3. eventListener
+(function () {
+  var count = 0;
+  var button = document.createElement("button");
+  button.innerText = "click";
+  var clickEvent = function () {
+    console.log(++count, "times clicked");
+    if (count >= 10) {
+      button.removeEventListener("click", clickEvent);
+      clickEvent = null;
+    }
+  };
+  button.addEventListener("click", clickEvent);
+  document.body.appendChild(button);
+})();
+```
+
+## <mark style="background: #FF5582A6;">Closer 활용 사례</mark>
+
+## <mark style="background: #FFB86CA6;">콜백 함수 내부에서 외부 데이터를 사용하고자 할 때</mark>
+
+대표적인 콜백 함수로 addEventListener를 보자.
+
+```javascript
+var fruits = ["apple", "banana", "peach"];
+var $ul = document.createElement("ul");
+
+fruits.forEach(function (fruit) {  //a
+  var $li = document.createElement("li");
+  $li.innerText = fruit;
+  $li.addEventListener("click", function () {  //b
+    alert("your choice is " + fruit);
+  });
+  $ul.appendChild($li);
+});
+document.body.appendChild($ul);
+```
+
+a부분에서 순회를 돌려서 b가 배열 수 만큼 진행된다.
+
+여기서 b(addEventListener)의 인자로 받은 함수는 a의 fruit 변수(외부 데이터)를 사용한다.
+
+이때 a가 종료되더라도 b의 outerEnvironmentReference는 여전히 a의 LexicalEnvironment를 찍고 있으므로 fruit에 접근할 수 있다. (Closer) (a는 이로인해 GC의 수거대상에서 제외된다.)
+
+Closer를 안 쓰고 구현해보자.
+
+b의 파라미터 함수를 외부로 꺼내라. 이때 addEventListener의 parameter로 그냥 함수를 넣으면 event 객체를 받으니 bind로 이를 해결해야한다.
+
+```JS
+
+var fruits = ["apple", "banana", "peach"];
+var $ul = document.createElement("ul");
+
+var alertFruit = function (fruit){
+	alert('your choice is'+ fruit);
+}
+
+fruits.forEach(function (fruit) {  //a
+  var $li = document.createElement("li");
+  $li.innerText = fruit;
+  $li.addEventListener("click",alertFruit.bind(null,fruit));
+  $ul.appendChild($li);
+});
+document.body.appendChild($ul);
+```
+
+하지만 이때 문제는 bind로 인해서 this를 활용할 수 없게 되었다는 거다.
+
+이를 위해 `고차함수`를 사용, Closer를 적극 활용하는 것이다. 이는 함수형 프로그래밍에서 자주 쓰이는 방식이다.
+
+## <mark style="background: #FFF3A3A6;">고차 함수</mark>
+
+함수를 인자로 받거나 리턴하는 함수
+
+```js
+var fruits = ["apple", "banana", "peach"];
+var $ul = document.createElement("ul");
+
+var alertFruitBuilder = function (fruit){
+// Closer를 이용해서 fruit라는 외부 변수를 내부 함수에서 사용
+	return function(){
+	alert('your choice is'+ fruit);
+	};
+};
+fruits.forEach(function (fruit) {  //a
+  var $li = document.createElement("li");
+  $li.innerText = fruit;
+  $li.addEventListener("click",alertFruitBuilder(fruit));
+  $ul.appendChild($li);
+});
+document.body.appendChild($ul);
+```
+
+위의 코드를 사용하면 event가 발생했을 때 alertFruitBuilder 실행 컨텍스트가 열리면서 안에 있는 function의
+
+outerEnvironmentReference가 fruit를 찾을 수 있게 해준다. (Closer)
+
+## <mark style="background: #FFB86CA6;">접근 권한 제어 (정보 은닉)</mark>
+
+어떤 모듈의 내부 로직에 대해 외부로의 노출을 최소화해서 모듈 간의 결합도를 낮추고 유연성을 높이기 위해 사용
+
+## <mark style="background: #FFF3A3A6;">접근 권한의 종류</mark>
+
+## <mark style="background: #BBFABBA6;">public</mark>
+
+외부에서 접근 가능
+
+## <mark style="background: #BBFABBA6;">private</mark>
+
+내부에서만 사용
+
+## <mark style="background: #BBFABBA6;">protected</mark>
+
+자식 클래스에서 접근이 가능, 인스턴스는 불가능
+
+## <mark style="background: #FFF3A3A6;">JS에서의 접근 권한 제어</mark>
+
+기본적으로 변수 자체에 접근 권한을 부여하도록 설계되어있지 않음.
+
+Closer를 이용해서 public, private을 구분할 수 있음.
+
+```js
+var outer = function () {
+  var a = 1;
+  var inner = function () {
+    return ++a;
+  }
+  return inner;
+};
+var outer2 = outer();
+console.log(outer2());
+console.log(outer2());
+console.log(outer2());
+```
+
+위의 코드에서는 outer의 변수인 a를 `return inner`로 인해 외부로 노출시켰다.
+
+이처럼 `return` 을 이용해서 외부 스코프에서 함수 내부의 변수들 중 일부 변수에 대한 접근 권한을 부여할 수 있다.
+
+outer함수는 전역 스코프와 격리된 공간이라 outer가 주는 return을 제외하면 전역 스코프에서는 어떤 정보에 접근
+
+할 수 없다.
+
+그렇기 때문에 `return`에 외부로 줄 정보들을 모아서 보내고 이외의 것들은 내부에서만 사용할 수 있게 해서 접근 
+
+제어를 동작하게 한다.
+
+외부로 줄 정보를 `public member`, 내부에서만 쓰는 정보를 `private member` 라고 한다.
+
+## <mark style="background: #BBFABBA6;">ex) Racing Game</mark>
+
+## <mark style="background: #ABF7F7A6;">변환 전</mark>
+
+```js
+var car = {
+  fuel: Math.ceil(Math.random() * 10 + 10),
+  power: Math.ceil(Math.random() * 3 + 2),
+  moved: 0,
+  run: function () {
+    var km = Math.ceil(Math.random() * 6);
+    var wasteFuel = km / this.power;
+    if (this.fuel < wasteFuel) {
+      console.log("이동불가");
+      return;
+    }
+    this.fuel -= wasteFuel;
+    this.moved += km;
+    console.log(`${km}km 이동 (총 '${this.moved}km')`);
+  },
+};
+```
+코드를 보면 알겠지만 연료, 마력, 총 이동거리 프로퍼티와 이동 메소드로 생성되는 car 객체이다.
+
+이걸로 그냥 하면 되겠지 싶은데 사실 내부의 프로퍼티에 접근이 가능하기 때문에 `car.fuel=1_000_000`로 치트를 써버릴 수 있다.
+
+이를 막기 위해선 필요한 프로퍼티는 숨기고 꺼낼 것만 꺼내야 한다. 여기서 Closer를 사용한다.
+
+우선 함수로 만들고 return으로 꺼낼 것만 꺼내보자.
+
+## <mark style="background: #ABF7F7A6;">1차 변환 (Closer 적용)</mark>
+
+```js
+var car = function() {
+  var fuel= Math.ceil(Math.random() * 10 + 10)
+  var power= Math.ceil(Math.random() * 3 + 2)
+  var moved = 0
+  
+  return {run: ()=>{
+    var km = Math.ceil(Math.random() * 6);
+    var wasteFuel = km / power;
+    
+    if (this.fuel < wasteFuel) {
+      console.log("이동불가");
+      return;
+    }
+    
+    fuel -= wasteFuel;
+    moved += km;
+    console.log(`${km}km 이동 (총 '${moved}km')`);
+  },get moved(){
+    return moved;
+  }}
+};
+```
+
+위의 코드를 보면 객체를 리턴하고 있고 그 객체는 return전 함수의 변수에 접근하고 있다.
+
+어려운 말로는 객체 내부의 outerEnvironmentReference는 car 함수 호출이 끝나도 여전히 car function의 각 변수들이 담겨 있는 car function의 LexicalEnvironment를 찍고 있다는 것이다.
+
+하지만 이때도 run 자체를 바꿔버리는 등의 활동은 치트 처럼 쓸 수 있게 된다. 객체 자체도 보호해보자.
+![[Pasted image 20240403224905.png]]
+
+## <mark style="background: #ABF7F7A6;">2차 변환 (객체 보호)</mark>
+
+```js
+var car = function () {
+  var fuel = Math.ceil(Math.random() * 10 + 10);
+  var power = Math.ceil(Math.random() * 3 + 2);
+  var moved = 0;
+  var publicMembers = {
+    run: () => {
+      var km = Math.ceil(Math.random() * 6);
+      var wasteFuel = km / power;
+      if (this.fuel < wasteFuel) {
+        console.log("이동불가");
+        return;
+      }
+      fuel -= wasteFuel;
+      moved += km;
+      console.log(`${km}km 이동 (총 '${moved}km')`);
+    },
+    get moved() {
+      return moved;
+    },
+  };
+  Object.freeze(publicMembers);
+  return publicMembers;
+};
+```
+![[Pasted image 20240403224715.png]]
+
+마지막 코드처럼 return한 객체 자체를 바꾸는 것은 되지만 
+
+확실히 객체 내의 메소드를 다른 것으로 따로 변경하는 것은 되지 않는다.
+
+## <mark style="background: #FFB86CA6;">부분 적용 함수</mark>
+
+n개의 인자를 받는 함수에 미리 m개의 인자만 넘겨 기억시켰다가, 나중에 (n-m)개의 인자를 넘기면 비로소 원래 함수의 실행 결과를 얻을 수 있게끔 하는 함수
+
+## <mark style="background: #FFF3A3A6;">bind 함수</mark>
+
+```js
+var add = function(){
+  var result = 0;
+  for (let  i= 0;  i< arguments.length; i++){
+    result+=argument[i];    
+  }
+  return result;
+};
+var addPartial = add.bind(null,1,2,3,4,5);
+console.log(addPartial(6,7)); //1+2+3+4+5+6+7
+```
+
+위의 bind함수를 이용하면 this를 사용할 수 없기 때문에 this를 사용하는 함수에서는 사용할 수 없다.
+
+## <mark style="background: #FFF3A3A6;">this를 쓸 수 있게 하는 방법</mark>
+
+```js
+var partial = function () {
+
+  var originalPartialArgs = arguments;
+  // 생성시의 arguments를 받아서 클로저를 이용하기 위해 할당
+  var func = originalPartialArgs[0];
+  
+  if (typeof func !== "function") {
+    throw new Error("첫 번째 인자가 함수가 아닙니다.");
+  }
+
+  return function () {
+    var partialArgs = Array.prototype.slice.call(originalPartialArgs, 1);
+    // Closer를 이용해서 partial 함수가 처음 선언됐을때, func이랑 다른 변수 처음에 넣었을 때, 그때 들어갔던 변수들 중
+    // func만 제외하고 다 담는다.
+
+    var restArgs = Array.prototype.slice.call(arguments);
+    // restArgs는 리턴된 function이 받은 arguments를 뜻함
+    
+    return func.apply(this, partialArgs.concat(restArgs));
+    // 0 인덱스에 있는 func에 처음선언때 할당된 변수 + 현재 할당받은 변수 배열을 넣어서 함수 실행
+    // this는 function으로써는 window나 global이 될꺼고 method로써 호출되면 해당 객체를 지정할 것이다.
+  };
+};
+
+// 받은 args를 모두 더해서 리턴하는 함수
+var add = function () {
+  var result = 0;
+// result 초기화
+  for (var i = 0; i < arguments.length; i++) {
+    result += arguments[i];
+  }
+// 받은 arguments들을 result에 더함
+  return result;
+};
+
+// 1,2,3,4,5가 미리 들어가 있는 add 부분 적용 함수 생성
+var addPartial = partial(add, 1, 2, 3, 4, 5);
+// 리턴된 부분적용된 함수가 변수에 들어감.
+
+// 6,7,8,9,10을 더해서 부분 적용 함수를 호출
+console.log(addPartial(6, 7, 8, 9, 10));
+// 1,2,3,4,5,6,7,8,9,10
+
+// greeting 메소드는 부분 적용 함수를 이용해서 "왈왈, "을 미리 넣은 함수이다. this로 원하는 함수를 넣어서 그곳에 적용시켰다.
+var dog = {
+  name: "강아지",
+  greet: partial(function (prefix, suffix) {
+    return prefix + this.name + suffix;
+  }, "왈왈, "),
+};
+
+// 메소드로써 호출 (내부의 this는 호출한 객체)
+dog.greet("입니다!");
+```
+
+위의 코드에서는 잘 작동하긴 한데 넘길 인자를 반드시 앞에서부터 차례로 전달할 수 밖에 없다.
+
+인자들을 원하는 위치에 미리 넣어놓고 나중에 빈 자리에 인자를 채워넣어 실행해보자.
+
+## <mark style="background: #FFF3A3A6;">this도 쓰고 내가 인자 위치 정하기</mark>
+
+빈자리는 "\_"로 표시하였다.
+
+```js
+Object.defineProperty(window, "_", {
+  value: "EMPTY_SPACE",
+  writable: false,
+  configurable: false,
+  enumerable: false,
+});
+
+var partial = function () {
+  var originalPartialArgs = arguments; // 생성시의 arguments를 받아서 클로저를 이용하기 위해 할당
+  var func = originalPartialArgs[0];
+
+  if (typeof func !== "function") {
+    throw new Error("첫 번째 인자가 함수가 아닙니다.");
+  }
+
+  return function () {
+    var partialArgs = Array.prototype.slice.call(originalPartialArgs, 1);
+    // Closer를 이용해서 partial 함수가 처음 선언됐을때, func이랑 다른 변수 처음에 넣었을 때, 들어갔던 변수들 중
+    // func만 제외하고 다 담는다.
+
+    var restArgs = Array.prototype.slice.call(arguments);
+    // restArgs는 리턴된 function이 받은 arguments를 뜻함
+
+    for (var i = 0; i < partialArgs.length; i++) {
+      if (partialArgs[i] === _) {
+        partialArgs[i] = restArgs.shift();
+      }
+    }
+    // "_"은 처음 설정한 부분 적용 함수에서 비어 있는 인자를 표현한 것이다.
+    // 부분 적용 함수를 다음에 선언해서 사용하면 _을 만날때 인자를 왼쪽에서 땡겨서
+    // 하나 뺀 후 _를 덮어써야한다.
+
+    return func.apply(this, partialArgs.concat(restArgs));
+    // 0 인덱스에 있는 func에 처음선언때 할당된 변수 + 현재 할당받은 변수 배열을 넣어서 함수 실행
+    // this는 function으로써는 window나 global이 될꺼고 method로써 호출되면 해당 객체를 지정할 것이다.
+  };
+};
+
+// 받은 args를 모두 더해서 리턴하는 함수
+var add = function () {
+  var result = 0;
+  // result 초기화
+  
+  for (var i = 0; i < arguments.length; i++) {
+    result += arguments[i];
+  }
+  
+  // 받은 arguments들을 result에 더함
+  return result;
+};
+
+// 1,2,4,5,8,9가 미리 들어가 있는 add 부분 적용 함수 생성
+// _로 미리 빈칸을 표시했음.
+var addPartial = partial(add,1,2,_,4,5,_,_,8,9);
+// 리턴된 부분적용된 함수가 변수에 들어감.
+
+// 3,6,7,10을 더해서 부분 적용 함수를 호출
+// _을 대체해서 3 6 7이 들어가고 그 다음 10이 들어가게 된다.
+console.log(addPartial(3,6,7,10));
+// 1,2,3,4,5,6,7,8,9,10
+
+// greeting 메소드는 부분 적용 함수를 이용해서 "왈왈, "을 미리 넣은 함수이다. this로 원하는 함수를 넣어서 그곳에 적용시켰다.
+var dog = {
+  name: "강아지",
+  greet: partial(function (prefix, suffix) {
+    return prefix + this.name + suffix;
+  }, "왈왈, "),
+};
+
+// 메소드로써 호출 (내부의 this는 호출한 객체)
+dog.greet(" 배고파요!");
+// 왈왈, 강아지 배고파요!
+```
+
+비워놓음을 표시하기 위해 전역객체에 \_를 미리 넣고 삭제 변경 같은 걸 방지하기 위한 프로퍼티 속성을 설정했다.
+
+미리 일부 인자를 넘겨두어 기억하게끔 하고 추후 필요한 시점에 기억했던 인자들까지 함께 실행한다는 개념이 Closer와 아주 부합한다.
+
+## <mark style="background: #BBFABBA6;">Symbol의 활용</mark>
+
+이전 코드에서 \_을 사용하기 위해 전역 객체에서 \_ 의 프로퍼티를 처리하고 사용했었다.
+
+여기서 Symbol의 장점을 이용해서 더 쉽게 사용할 수 있다.
+
+```js
+(function (){
+  var EmptySpace = Symbol.for('EMPTY_SPACE');
+  // 기존 전역 심볼 공간에 'EMPTY_SPACE'라는 문자열을 가진 심볼이 없으므로 새로 생성.
+  console.log(EmptySpace);
+})();
+  
+(function(){
+  console.log(Symbol.for('EMPTY_SPACE'));
+  // 기존 전역 심볼 공간에 'EMPTY_SPACE'라는 문자열의 심볼이 있으므로 해당 값을 참조.
+})();
+```
+
+Symbol을 이용해서 재구성해보자.
+
+```js
+// ...
+for (var i = 0; i< partialArgs.length; i++){
+  if (partialArgs[i]==Symbol.for('EMPTY_SPACE')){
+    partialArgs[i]=restArgs.shift();
+  }
+}
+
+// ...
+
+var _ = Symbol.for('EMPTY_SPACE');
+var addPartial = partial(add,1,2,_,4,5,_,_,8,9);
+// ...
+```
+
+## <mark style="background: #FFB86CA6;">Debounce</mark>
+
+짧은 시간 동안 동일한 이벤트가 많이 발생할 경우 이를 전부 처리하지 않고 처음 또는 마지막에 발생한 이벤트에 
+
+대해 한 번만 처리하는 것 > FE 성능 최적화에 도움이 되는 기능중 하나이다.
+
+ex) scroll, wheel, mousemove, resize
+
+Lodash같은 라이브러리에서 복잡하게 구현해놨지만 최소한의 기능에 대한 구현(마지막에 발생한 이벤트만 처리 같은)은 간단하다.
+
+```js
+var debounce = function (eventName, func, wait){
+  var timeoutId = null;
+  return function (event){
+    var self = this;
+    
+    // setTimeout의 콜백을 위해서 this를 따로 빼야함.
+    console.log(eventName,'event 발생');
+    clearTimeout(timeoutId);
+    
+    // bind하지 않으면 window 객체가 this가 될꺼임.
+    timeoutId=setTimeout(func.bind(self,event),wait);
+  };
+};
+
+var moveHandler = function(e){
+  console.log('move event 처리');
+};
+var wheelHandler = function (e){
+  console.log('wheel event 처리');
+};
+
+// addEventListener가 debounce의 리턴 함수의 인자로 event를 자동으로 준다.
+document.body.addEventListener('mousemove',debounce('move',moveHandler,500));
+document.body.addEventListener("mousewheel", debounce("wheel", wheelHandler, 700));
+```
+
+위 코드에서 Closer로 처리되는건 eventName, func, wait, timeoutId이다.
+
+## <mark style="background: #FFB86CA6;">Currying Function</mark>
+
+여러 개의 인자를 받는 함수를 하나의 인자만 받는 함수로 나눠서 순차적으로 호출될 수 있게 체인 형태로 구성한 것
+
+한번에 하나의 인자만 전달하는 것을 원칙으로 한다.
+
+## <mark style="background: #FFF3A3A6;">구조</mark>
+
+```js
+var currying = function (func){
+  return function (a){
+    return function (b){
+      return func(a,b);
+    }
+  }
+}
+
+var getMaxWith10 = currying(Math.max)(10);
+console.log(getMaxWith10(8));
+console.log(getMaxWith10(25));
+
+var getMinwith10 = currying(Math.min)(10);
+console.log(getMinWith10(8));
+console.log(getMinWith10(25));
+```
+
+  하지만 이 방법은 인자가 늘어나면 가독성이 떨어진다.
+
+```js
+var currying = function (func) {
+  return function (a) {
+    return function (b) {
+      return function (c) {
+        return function (d) {
+          return function (e) {
+            return function (f) {
+              return func(a, b, c, d, e, f);
+            };
+          };
+        };
+      };
+    };
+  };
+};
+```
+
+Arrow Function으로 이를 해결할 수 있다.
+
+```js 
+var currying = (func) => (a) => (b) => (c) => (d) => (e) => (f) =>
+  func(a, b, c, d, e, f);
+```
+
+각 단계에서 받은 인자들을 모두 마지막 단계에서 참조하기 때문에 메모리에 차곡차곡 쌓였다가 마지막 단계에서 호출해서 실행 컨텍스트가 끝나면 한번에 GC의 수거 대상이 된다.
+
+마지막 인자가 넘어갈 때까지 함수 실행을 미룰 수 있는 건 유용하다 . (lazy execution)
+ex) 서버에 요청을 보낼 때 baseUrl은 미리 갖고 있고 나머지는 나중에 기입하는 방식
+
+```js
+var getInformation = (baseUrl) => (path) => (id) =>
+  fetch(baseUrl + path + "/" + id);
+  
+var imageUrl = "http://imageAddress.com/";
+  
+var getImage = getInformation(imageUrl);
+// http://imageAddress.com/
+  
+var getEmoticon = getInformation('emoticon');
+// http://imageAddress.com/emoticon
+var getIcon = getImage('icon');
+// http://imageAddress.com/icon
+  
+var emoticon100 = getEmoticon(100);
+// http://imageAddress.com/emoticon/100
+var icon100 = getIcon(100);
+// http://imageAddress.com/icon/100
+```
+
+ex) Redux의 middleware
+```js
+// logger middleware
+const logger = store => next => action => {  
+console.log('dispatching', action)  
+let result = next(action)  
+console.log('next state', store.getState())  
+return result  
+}
+
+// thunk middleware
+const thunk = store => next => action =>  
+typeof action === 'function'  
+? action(store.dispatch, store.getState)  
+: next(action)
+```
+
+## <mark style="background: #FFF3A3A6;">부분 적용 함수와의 차이</mark>
+
+커링은 중간 과정 상의 함수를 실행한 결과는 그 다음 인자를 받기 위해 대기만 할 뿐으로, 마지막 인자가 전달되기 
+
+전까지는 원본 함수가 실행되지 않는다. ( 부분 적용 함수는 여러 개의 인자를 전달할 수 있는 것까진 같지만 실행 결
+
+과를 재실행할 때 원본 함수가 무조건 실행된다. )

@@ -13,7 +13,7 @@
 [제어권 - 인자 & this](https://github.com/CitrusSoda/codeit14_techtalk/tree/main/%EC%9D%B4%EC%A7%80%ED%98%84/chapter%204)
 
 ## 챕터 5
-(추후 업로드 예정)
+[부분 적용 함수](https://github.com/CitrusSoda/codeit14_techtalk/tree/main/%EC%9D%B4%EC%A7%80%ED%98%84/chapter%205)
 
 ## 챕터 6
 (추후 업로드 예정)

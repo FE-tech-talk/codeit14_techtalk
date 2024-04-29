@@ -4,7 +4,7 @@
 
 ![예제1](image1.png)
 
-prototype은 객체이며 \_\_proto\_\_ 는 Constructor의 prototype을 참조합니다. 따라서 \_\_proto\_\_ 도 객체입니다.
+prototype은 객체이며 \_\_proto\_\_ 는 Constructor의 prototype을 참조한다. 따라서 \_\_proto\_\_ 도 객체이다.
 
 ES5.1명세에서 \_\_proto\_\_는 [[prototype]]이라는 명칭으로 정의되어 있으나 대부분의 브라우저들이 직접 접근하게 만들었고 Object.getPrototypeOf(instance)/Refelect.getPrototypeOf(instance)를 통해서만 접근할 수 있었습니다. ES6에서는 레거시 코드에 대한 호환성 유지 차원에서 정식으로 인정하였다.
 실무에서는 \_\_proto\_\_보다 Object.getPrototypeOf()/Object.create() 등을 이용하는 것이 좋다.

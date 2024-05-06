@@ -19,4 +19,4 @@
 [메서드 오버라이드](https://github.com/CitrusSoda/codeit14_techtalk/tree/main/%EC%9D%B4%EC%A7%80%ED%98%84/chapter%206)
 
 ## 챕터 7
-(추후 업로드 예정)
+[ES6의 클래스 및 클래스 상속](https://github.com/CitrusSoda/codeit14_techtalk/tree/main/%EC%9D%B4%EC%A7%80%ED%98%84/chapter%207)
